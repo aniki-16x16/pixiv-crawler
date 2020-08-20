@@ -1,0 +1,17 @@
+{
+  "name": "pixiv-crawler",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "axios": "^0.19.2",
+    "mongodb": "^3.6.0"
+  },
+  "devDependencies": {
+    "@types/axios": "^0.14.0",
+    "@types/mongodb": "^3.5.26",
+    "esbuild": "^0.6.25"
+  },
+  "scripts": {
+    "compile": "esbuild --bundle ./src/index.ts --outdir=dist "
+  }
+}
