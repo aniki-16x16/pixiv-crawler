@@ -1,7 +1,7 @@
 import { ObjectId } from "mongodb";
 
 export interface _MongoData {
-  _id?: ObjectId
+  _id?: ObjectId;
 }
 
 export interface _Response {

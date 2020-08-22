@@ -10,7 +10,7 @@ export interface User extends _MongoData {
   additional: {
     last_update: Date;
     last_post: ArtworkPost;
-  }
+  };
 }
 
 export interface UserResponse extends _Response {
@@ -19,7 +19,7 @@ export interface UserResponse extends _Response {
     name: string;
     imageBig: string; // 头像
     comment: string; // 个人简介
-  }
+  };
 }
 
 export interface UserStatistic extends _MongoData {

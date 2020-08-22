@@ -8,7 +8,7 @@ export interface Tag extends _MongoData {
   additional: {
     last_update: Date;
     last_post: ArtworkPost;
-  }
+  };
 }
 
 export interface TagStatistic extends _MongoData {

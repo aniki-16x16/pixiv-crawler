@@ -47,14 +47,14 @@ export function concurrent(
 
     let addTask = function (value, _count = count) {
       let modifiedValue = value;
-      if (lifeCycle && lifeCycle.before) {
+      if (lifeCycle?.before) {
         modifiedValue = lifeCycle.before(value, _count);
       }
       let req = op(modifiedValue);
       req
         .then((taskResult) => {
           remain--;
-          if (lifeCycle && lifeCycle.after) {
+          if (lifeCycle?.after) {
             taskResult = lifeCycle.after(taskResult, value, _count);
           }
           if (dataIsArray) {
@@ -69,11 +69,7 @@ export function concurrent(
           remain++;
         })
         .catch((err) => {
-          if (
-            lifeCycle &&
-            lifeCycle.error &&
-            lifeCycle.error(err, value, _count)
-          ) {
+          if (lifeCycle?.error && lifeCycle.error(err, value, _count)) {
             addTaskWrapper(data[_count]);
           } else {
             addTaskWrapper(data[count]);

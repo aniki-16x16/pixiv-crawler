@@ -10,8 +10,12 @@ export interface Artwork extends _MongoData {
   title: string;
   desc: string;
   src: string[];
+  pages: number;
   is_r18: boolean;
-  tags: string[];
+  tags: {
+    name: string;
+    translation: string;
+  }[];
   view_info: {
     likes: number;
     marks: number;
@@ -20,7 +24,7 @@ export interface Artwork extends _MongoData {
   post_date: Date;
   additional: {
     last_update: Date;
-  }
+  };
 }
 
 export interface ArtworkResponse extends _Response {
@@ -39,10 +43,10 @@ export interface ArtworkResponse extends _Response {
         tag: string;
         translation?: {
           en: string; // 中文翻译
-        }
+        };
       }[];
-    }
-  }
+    };
+  };
 }
 
 export interface ArtworkPagesResponse extends _Response {
@@ -51,6 +55,6 @@ export interface ArtworkPagesResponse extends _Response {
     width: number;
     urls: {
       original: string;
-    }
+    };
   }[];
 }
