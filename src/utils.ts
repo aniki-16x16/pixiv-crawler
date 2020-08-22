@@ -1,62 +1,78 @@
+interface _ChunkFullfilled {
+  (data: any[]): Promise<any>;
+}
+
 export function concurrent(
   data: any[],
-  op: (data: any) => Promise<any>,
+  op: (data, addToChunk?: Function) => Promise<any>,
   limit: number,
-  lifeCycle?: {
-    before?: (rawData: any, index: number) => any;
-    after?: (rawResult: any, data: any, index: number) => any;
-    error?: (err: Error, data: any, index: number) => boolean;
+  options?: {
+    retry?: boolean;
+    chunk?: {
+      size: number;
+      fullfilled: _ChunkFullfilled;
+      sort?: (a, b) => number
+    };
   }
 ): Promise<any[]>;
 export function concurrent(
   data: Function,
-  op: (data: any) => Promise<any>,
+  op: (data, addToChunk?: Function) => Promise<any>,
   limit: number,
-  lifeCycle?: {
-    before?: (rawData: any, index: number) => any;
-    after?: (rawResult: any, data: any, index: number) => any;
-    error?: (err: Error, data: any, index: number) => boolean;
+  options?: {
+    retry?: boolean;
+    chunk?: {
+      size: number;
+      fullfilled: _ChunkFullfilled;
+      sort?: (a, b) => number
+    };
   }
 ): Promise<any[]>;
-
 /**
  * @description 控制异步并发，失败时能够自动重试
  * @param data 输入的数据，可以传递一个generator函数
  * @param op 执行的异步操作
  * @param limit 并发量
- * @param lifeCycle 生命周期各个阶段执行的函数
  * @returns 返回Promise，当所有异步操作都完成后resolve
  */
 export function concurrent(
   data: any[] | Function,
-  op: (data: any) => Promise<any>,
+  op: (data, addToChunk?: Function) => Promise<any>,
   limit: number,
-  lifeCycle?: {
-    before?: (rawData: any, index: number) => any;
-    after?: (rawResult: any, data: any, index: number) => any;
-    error?: (err: Error, data: any, index: number) => boolean;
-  }
+  options: {
+    retry?: boolean;
+    chunk?: {
+      size: number;
+      fullfilled: _ChunkFullfilled;
+      sort?: (a, b) => number
+    };
+  } = {}
 ) {
   return new Promise((resolve) => {
-    let result = [];
     let count = 0;
     let remain = 0;
-    let dataIsArray = Array.isArray(data);
-    let _generator: Generator = dataIsArray ? null : (data as Function)();
+    const result = [];
+    const dataIsArray = Array.isArray(data);
+    const _generator: Generator = dataIsArray ? null : (data as Function)();
     let tmp = dataIsArray ? data : _generator.next().value;
+    const {
+      retry,
+      chunk: { size: chunkSize, fullfilled: ChunkFullfilled, sort: chunkSort },
+    } = options;
+    const chunk = [];
 
-    let addTask = function (value, _count = count) {
-      let modifiedValue = value;
-      if (lifeCycle?.before) {
-        modifiedValue = lifeCycle.before(value, _count);
-      }
-      let req = op(modifiedValue);
+    let addToChunk = async (value) => chunk.push(value);
+
+    const addTask = (value, _count = count) => {
+      const req = op(value, chunkSize > 0 ? addToChunk : null);
       req
-        .then((taskResult) => {
-          remain--;
-          if (lifeCycle?.after) {
-            taskResult = lifeCycle.after(taskResult, value, _count);
+        .then(async (taskResult) => {
+          if (chunk.length >= chunkSize) {
+            await ChunkFullfilled(chunkSort ? chunk.sort(chunkSort) : chunk);
+            chunk.length = 0;
           }
+
+          remain--;
           if (dataIsArray) {
             result[_count] = taskResult;
             if (count >= (data as any[]).length) {
@@ -68,15 +84,17 @@ export function concurrent(
           count++;
           remain++;
         })
-        .catch((err) => {
-          if (lifeCycle?.error && lifeCycle.error(err, value, _count)) {
+        .catch(() => {
+          if (retry) {
             addTaskWrapper(data[_count]);
           } else {
             addTaskWrapper(data[count]);
+            count++;
+            remain++;
           }
         });
     };
-    let addTaskWrapper = (value) => {
+    const addTaskWrapper = (value) => {
       if (dataIsArray) {
         addTask(value);
       } else {

@@ -24,14 +24,14 @@ async function main() {
 
   concurrent(
     function* () {
-      let count = 0;
+      let count = 1;
       while (true) {
         yield count++;
       }
     },
-    (illustId: number) => {
+    (illustId: number, addToChunk: Function) => {
       return Axios.get(getUrl(ILLUST_URL, illustId))
-        .then(async (res) => {
+        .then((res) => {
           if ((res.data as ArtworkResponse).error) throw new Error();
 
           let now = new Date();
@@ -58,19 +58,31 @@ async function main() {
             },
           };
 
-          await collections.artwork.insertOne(artwork);
-          console.log(`${now} illust-${illustId}保存成功`);
+          addToChunk(artwork);
         })
         .catch((err: AxiosError) => {
           let now = new Date().toUTCString();
           if (err.response?.status === 404) {
-            console.log(`ERROR! ${now}! illust-${illustId}不存在`);
+            console.error(`illust-${illustId}不存在`);
           } else {
-            console.log(`ERROR! ${now} illust-${illustId}发生未知错误`);
+            console.error(`illust-${illustId}发生未知错误，以下是错误信息:`);
+            console.error(err);
+            process.exit(1);
           }
         });
     },
-    20
+    20,
+    {
+      retry: true,
+      chunk: {
+        size: 1000,
+        fullfilled: async (data) => {
+          await collections.artwork.insertMany(data);
+          console.log(`${new Date().toUTCString()} chunk写入成功`);
+        },
+        sort: (a: Artwork, b: Artwork) => a.id - b.id
+      }
+    }
   );
 }
 main();
