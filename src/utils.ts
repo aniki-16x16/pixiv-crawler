@@ -1,119 +1,75 @@
-interface _ChunkFullfilled {
-  (data: any[]): Promise<any>;
+interface _ConcurrentPipelines {
+  onChunkFullfilled: (chunk: any[]) => Promise<void>;
+  success?: (data: any) => any;
+  error?: (err: any, data: any) => void;
 }
+export class Concurrent {
+  #op: (data: any) => Promise<any>;
+  #limit: number;
+  #nextAble: Generator;
+  #count = 0;
+  #chunk = [];
+  #chunkSize: number;
+  #options: {
+    retry: boolean;
+  };
+  #pipelines: _ConcurrentPipelines;
 
-export function concurrent(
-  data: any[],
-  op: (data, addToChunk?: Function) => Promise<any>,
-  limit: number,
-  options?: {
-    retry?: boolean;
-    chunk?: {
-      size: number;
-      fullfilled: _ChunkFullfilled;
-      sort?: (a, b) => number
-    };
+  constructor(data: Function, op: (data: any) => Promise<any>, limit: number, chunkSize: number, retry = true) {
+    this.#nextAble = data();
+    this.#op = op;
+    this.#limit = limit;
+    this.#chunkSize = chunkSize;
+    this.#options = { retry };
   }
-): Promise<any[]>;
-export function concurrent(
-  data: Function,
-  op: (data, addToChunk?: Function) => Promise<any>,
-  limit: number,
-  options?: {
-    retry?: boolean;
-    chunk?: {
-      size: number;
-      fullfilled: _ChunkFullfilled;
-      sort?: (a, b) => number
-    };
-  }
-): Promise<any[]>;
-/**
- * @description 控制异步并发，失败时能够自动重试
- * @param data 输入的数据，可以传递一个generator函数
- * @param op 执行的异步操作
- * @param limit 并发量
- * @returns 返回Promise，当所有异步操作都完成后resolve
- */
-export function concurrent(
-  data: any[] | Function,
-  op: (data, addToChunk?: Function) => Promise<any>,
-  limit: number,
-  options: {
-    retry?: boolean;
-    chunk?: {
-      size: number;
-      fullfilled: _ChunkFullfilled;
-      sort?: (a, b) => number
-    };
-  } = {}
-) {
-  return new Promise((resolve) => {
-    let count = 0;
-    let remain = 0;
-    const result = [];
-    const dataIsArray = Array.isArray(data);
-    const _generator: Generator = dataIsArray ? null : (data as Function)();
-    let tmp = dataIsArray ? data : _generator.next().value;
-    const {
-      retry,
-      chunk: { size: chunkSize, fullfilled: ChunkFullfilled, sort: chunkSort },
-    } = options;
-    const chunk = [];
 
-    let addToChunk = async (value) => chunk.push(value);
+  start(): Promise<any> {
+    if (!this.#pipelines?.onChunkFullfilled)
+      throw new Error("未设置onChunkFullfilled");
 
-    const addTask = (value, _count = count) => {
-      const req = op(value, chunkSize > 0 ? addToChunk : null);
+    const { retry } = this.#options;
+    const addToChunk = async (data) => {
+      this.#chunk.push(data);
+      if (this.#chunk.length >= this.#chunkSize) {
+        let tmp = this.#chunk.concat();
+        this.#chunk.length = 0;
+        await this.#pipelines.onChunkFullfilled(tmp);
+      }
+    };
+    const addTask = (data, _count = this.#count) => {
+      const req = this.#op(data);
       req
-        .then(async (taskResult) => {
-          if (chunk.length >= chunkSize) {
-            await ChunkFullfilled(chunkSort ? chunk.sort(chunkSort) : chunk);
-            chunk.length = 0;
-          }
-
-          remain--;
-          if (dataIsArray) {
-            result[_count] = taskResult;
-            if (count >= (data as any[]).length) {
-              if (remain <= 0) return resolve(result);
-              return;
-            }
-          }
-          addTaskWrapper(data[count]);
-          count++;
-          remain++;
+        .then(async (result) => {
+          await addToChunk(
+            this.#pipelines?.success ? this.#pipelines.success(result) : result
+          );
+          addTask(this.#nextAble.next().value);
+          this.#count++;
         })
-        .catch(() => {
+        .catch((err) => {
+          if (this.#pipelines?.error) {
+            this.#pipelines.error(err, data);
+          }
           if (retry) {
-            addTaskWrapper(data[_count]);
+            addTask(data);
           } else {
-            addTaskWrapper(data[count]);
-            count++;
-            remain++;
+            addTask(this.#nextAble.next().value);
+            this.#count++;
           }
         });
     };
-    const addTaskWrapper = (value) => {
-      if (dataIsArray) {
-        addTask(value);
-      } else {
-        addTask(tmp);
-        tmp = _generator.next().value;
+    return new Promise((resolve, reject) => {
+      for (let i = 0; i < this.#limit; i++) {
+        addTask(this.#nextAble.next().value);
+        this.#count++;
       }
-    };
+    });
+  }
 
-    for (
-      let i = 0;
-      (i < limit && dataIsArray && i < data.length) ||
-      (!dataIsArray && i < limit);
-      i++
-    ) {
-      addTaskWrapper(data[i]);
-      count++;
-      remain++;
-    }
-  });
+  setPipeline(pipeline: _ConcurrentPipelines) {
+    const { onChunkFullfilled, success: after, error } = pipeline;
+    this.#pipelines = { onChunkFullfilled, success: after, error };
+  }
 }
 
 /**
@@ -122,4 +78,19 @@ export function concurrent(
 export function randInt(m: number, n: number) {
   if (m > n) [m, n] = [n, m];
   return Math.floor(Math.random() * (n - m)) + m;
+}
+
+export function classifyObjArr(
+  objArr: object[],
+  prop: string
+): { [key: string]: any[] } {
+  const result = {};
+  for (const obj of objArr) {
+    if (result[obj[prop]]) {
+      result[obj[prop]].push(obj);
+    } else {
+      result[obj[prop]] = [obj];
+    }
+  }
+  return result;
 }

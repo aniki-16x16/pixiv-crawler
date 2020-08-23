@@ -7,15 +7,12 @@ export interface ArtworkPost {
 
 export interface Artwork extends _MongoData {
   id: number;
+  author: number;
   title: string;
   desc: string;
-  src: string[];
   pages: number;
   is_r18: boolean;
-  tags: {
-    name: string;
-    translation: string;
-  }[];
+  tags: string[];
   view_info: {
     likes: number;
     marks: number;
@@ -29,12 +26,13 @@ export interface Artwork extends _MongoData {
 
 export interface ArtworkResponse extends _Response {
   body: {
-    illustId: string; // 图片ID，需要转换成number
+    illustId: string;
+    userId: string;
     bookmarkCount: number;
     likeCount: number;
     viewCount: number;
-    createDate: string; // 字符串，需要转换成Date
-    uploadDate: string; // 同理
+    createDate: string;
+    uploadDate: string;
     illustTitle: string;
     description: string;
     pageCount: number;
@@ -47,14 +45,4 @@ export interface ArtworkResponse extends _Response {
       }[];
     };
   };
-}
-
-export interface ArtworkPagesResponse extends _Response {
-  body: {
-    height: number;
-    width: number;
-    urls: {
-      original: string;
-    };
-  }[];
 }
