@@ -12,6 +12,10 @@ const getUrl = (url: string, val: number) => url.replace("$$i", val.toString());
 async function main() {
   let collections = await DbUtil.connect();
 
+  /**
+   * 在内存中维护一个Set，从而避免高并发时重复创建tag的问题
+   */
+  const createdTag = new Set();
   new Concurrent(
     function* () {
       let count = 1;
@@ -44,27 +48,44 @@ async function main() {
                   $set: { additional: tag.additional },
                 }
               )
-              .then((opResult) => {
-                if (opResult.value) {
-                  console.log(`${new Date().toUTCString()} 成功更新1条tag`);
-                } else {
-                  return collections.tag.insertOne(tag);
+              .then(
+                (opResult): Promise<any> => {
+                  if (!opResult.value) {
+                    /**
+                     * 第一次update的时候失败，可能是因为对应的tag没有创建
+                     * 但是执行到这一步的中间时段，可能这个tag被创建了
+                     * 所以这里通过内存中的Set去进行判断
+                     * 如果已经创建，就再执行一次update，这样就避免了重复创建同一个tag
+                     */
+                    if (createdTag.has(tag.name)) {
+                      return collections.tag.findOneAndUpdate(
+                        { name: tag.name },
+                        {
+                          $inc: { total_post: tag.total_post },
+                          $push: { post_history: { $each: tag.post_history } },
+                          $set: { additional: tag.additional },
+                        }
+                      );
+                    } else {
+                      createdTag.add(tag.name);
+                      return collections.tag.insertOne(tag);
+                    }
+                  }
                 }
-              })
-              .then((opResult) => {
-                if (opResult) console.log(`${new Date().toUTCString()} 成功插入1条tag`);
-              })
+              )
           );
         }
         Promise.all(_updateTagsPromises)
           .then(() => {
             console.log(
-              `${new Date().toUTCString()} ${tags.length}条tag处理完毕，耗时${(Date.now() - tagTimer) / 1000}秒`
+              `${new Date().toUTCString()} ${tags.length}耗时${
+                (Date.now() - tagTimer) / 1000
+              }秒`
             );
           })
           .catch((err) => {
             console.error(
-              `${new Date().toUTCString()} 操作tag时发生未知错误，以下是错误信息:`
+              `${new Date().toUTCString()}操作tag时发生未知错误:`
             );
             console.error(err);
             process.exit(1);
@@ -74,7 +95,7 @@ async function main() {
           .insertMany((chunk as unknown) as Artwork[])
           .then(() => {
             console.log(
-              `${new Date().toUTCString()} 成功写入${chunk.length}条artwork`
+              `${new Date().toUTCString()} 插入${chunk.length}条artwork`
             );
           });
       },
@@ -109,10 +130,10 @@ async function main() {
       error(err: AxiosError, illustId: number) {
         let now = new Date().toUTCString();
         if (err.response?.status === 404) {
-          console.error(`${now} illust-${illustId}不存在`);
+          console.log(`${now} ${illustId}不存在`);
         } else {
           console.error(
-            `${now} illust-${illustId}发生未知错误，以下是错误信息:`
+            `${now} ${illustId}未知错误:`
           );
           console.error(err);
           process.exit(1);
