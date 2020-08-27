@@ -69,6 +69,7 @@ export class Concurrent {
   setPipeline(pipeline: _ConcurrentPipelines) {
     const { onChunkFullfilled, success: after, error } = pipeline;
     this.#pipelines = { onChunkFullfilled, success: after, error };
+    return this;
   }
 }
 

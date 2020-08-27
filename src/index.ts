@@ -12,7 +12,7 @@ const getUrl = (url: string, val: number) => url.replace("$$i", val.toString());
 async function main() {
   let collections = await DbUtil.connect();
 
-  let task = new Concurrent(
+  new Concurrent(
     function* () {
       let count = 1;
       while (true) {
@@ -23,101 +23,103 @@ async function main() {
     20,
     1000,
     false
-  );
-  task.setPipeline({
-    onChunkFullfilled: async (chunk: _ArtworkBeforeWrite[]) => {
-      const now = new Date();
-      chunk.sort(
-        (a: _ArtworkBeforeWrite, b: _ArtworkBeforeWrite) => a.id - b.id
-      );
+  )
+    .setPipeline({
+      onChunkFullfilled: async (chunk: _ArtworkBeforeWrite[]) => {
+        chunk.sort(
+          (a: _ArtworkBeforeWrite, b: _ArtworkBeforeWrite) => a.id - b.id
+        );
 
-      // tags数组包含了所有artwork中的所有tag
-      const tags: Tag[] = [];
-      const tagTemp = {};
-      for (const artwork of chunk) {
-        ((artwork as unknown) as Artwork).tags = artwork.tags.map((tag) => {
-          if (tagTemp[tag.name]) {
-            let tmp = tags[tagTemp[tag.name]];
-            tmp.total_post += 1;
-            tmp.additional = {
-              last_update: now,
-              last_post: {
-                id: artwork.id,
-                date: artwork.post_date,
-              },
-            };
-          } else {
-            tags.push({
-              name: tag.name,
-              translation: tag.translation,
-              total_post: 1,
-              additional: {
-                last_update: now,
-                last_post: {
-                  id: artwork.id,
-                  date: artwork.post_date,
-                },
-              },
-            });
-            tagTemp[tag.name] = tags.length - 1;
-          }
-
-          return tag.name;
-        });
-      }
-
-      const _prom1 = collections.artwork
-        .insertMany((chunk as unknown) as Artwork[])
-        .then(() => {
-          console.log(
-            `${new Date().toUTCString()} 成功写入${chunk.length}条artwork`
+        const tags = _generateTagsByArtworks((chunk as unknown) as Artwork[]);
+        const _updateTagsPromises: Promise<any>[] = [];
+        const tagTimer = Date.now();
+        for (const tag of tags) {
+          _updateTagsPromises.push(
+            collections.tag
+              .findOneAndUpdate(
+                { name: tag.name },
+                {
+                  $inc: { total_post: tag.total_post },
+                  $push: { post_history: { $each: tag.post_history } },
+                  $set: { additional: tag.additional },
+                }
+              )
+              .then((opResult) => {
+                if (opResult.value) {
+                  console.log(`${new Date().toUTCString()} 成功更新1条tag`);
+                } else {
+                  return collections.tag.insertOne(tag);
+                }
+              })
+              .then((opResult) => {
+                if (opResult) console.log(`${new Date().toUTCString()} 成功插入1条tag`);
+              })
           );
-        });
-      const _prom2 = collections.tag.insertMany(tags).then(() => {
-        console.log(`${new Date().toUTCString()} 成功写入${tags.length}条tag`);
-      });
-      await Promise.all([_prom1, _prom2]);
-    },
-    success(res) {
-      if ((res.data as ArtworkResponse).error) throw new Error();
+        }
+        Promise.all(_updateTagsPromises)
+          .then(() => {
+            console.log(
+              `${new Date().toUTCString()} ${tags.length}条tag处理完毕，耗时${(Date.now() - tagTimer) / 1000}秒`
+            );
+          })
+          .catch((err) => {
+            console.error(
+              `${new Date().toUTCString()} 操作tag时发生未知错误，以下是错误信息:`
+            );
+            console.error(err);
+            process.exit(1);
+          });
 
-      let now = new Date();
-      let data = (res.data as ArtworkResponse).body;
-      let artwork: _ArtworkBeforeWrite = {
-        id: Number.parseInt(data.illustId),
-        author: Number.parseInt(data.userId),
-        title: data.illustTitle,
-        desc: data.description,
-        pages: data.pageCount,
-        tags: data.tags.tags.map((tag) => ({
-          name: tag.tag,
-          translation: tag.translation?.en ?? "",
-        })),
-        is_r18: data.tags.tags.some((tag) => tag.tag === "R-18"),
-        post_date: new Date(data.uploadDate),
-        view_info: {
-          marks: data.bookmarkCount,
-          likes: data.likeCount,
-          views: data.viewCount,
-        },
-        additional: {
-          last_update: now,
-        },
-      };
-      return artwork;
-    },
-    error(err: AxiosError, illustId: number) {
-      let now = new Date().toUTCString();
-      if (err.response?.status === 404) {
-        console.error(`${now} illust-${illustId}不存在`);
-      } else {
-        console.error(`${now} illust-${illustId}发生未知错误，以下是错误信息:`);
-        console.error(err);
-        process.exit(1);
-      }
-    },
-  });
-  task.start();
+        await collections.artwork
+          .insertMany((chunk as unknown) as Artwork[])
+          .then(() => {
+            console.log(
+              `${new Date().toUTCString()} 成功写入${chunk.length}条artwork`
+            );
+          });
+      },
+      success(res) {
+        if ((res.data as ArtworkResponse).error) throw new Error();
+
+        let now = new Date();
+        let data = (res.data as ArtworkResponse).body;
+        let artwork: _ArtworkBeforeWrite = {
+          id: Number.parseInt(data.illustId),
+          author: Number.parseInt(data.userId),
+          title: data.illustTitle,
+          desc: data.description,
+          pages: data.pageCount,
+          tags: data.tags.tags.map((tag) => ({
+            name: tag.tag,
+            translation: tag.translation?.en ?? "",
+          })),
+          is_r18: data.tags.tags.some((tag) => tag.tag === "R-18"),
+          post_date: new Date(data.uploadDate),
+          view_info: {
+            marks: data.bookmarkCount,
+            likes: data.likeCount,
+            views: data.viewCount,
+          },
+          additional: {
+            last_update: now,
+          },
+        };
+        return artwork;
+      },
+      error(err: AxiosError, illustId: number) {
+        let now = new Date().toUTCString();
+        if (err.response?.status === 404) {
+          console.error(`${now} illust-${illustId}不存在`);
+        } else {
+          console.error(
+            `${now} illust-${illustId}发生未知错误，以下是错误信息:`
+          );
+          console.error(err);
+          process.exit(1);
+        }
+      },
+    })
+    .start();
 }
 main();
 
@@ -126,4 +128,45 @@ interface _ArtworkBeforeWrite extends Omit<Artwork, "tags"> {
     name: string;
     translation?: string;
   }[];
+}
+
+function _generateTagsByArtworks(artworks: Artwork[]): Tag[] {
+  const tags: Tag[] = [];
+  const tagTemp = {};
+  const now = new Date();
+  for (const artwork of artworks) {
+    artwork.tags = ((artwork as unknown) as _ArtworkBeforeWrite).tags.map(
+      (tag) => {
+        if (tagTemp[tag.name]) {
+          let tmp = tags[tagTemp[tag.name]];
+          tmp.total_post += 1;
+          tmp.post_history.push(artwork.id);
+          tmp.additional = {
+            last_update: now,
+            last_post: {
+              id: artwork.id,
+              date: artwork.post_date,
+            },
+          };
+        } else {
+          tags.push({
+            name: tag.name,
+            translation: tag.translation,
+            total_post: 1,
+            post_history: [artwork.id],
+            additional: {
+              last_update: now,
+              last_post: {
+                id: artwork.id,
+                date: artwork.post_date,
+              },
+            },
+          });
+          tagTemp[tag.name] = tags.length - 1;
+        }
+        return tag.name;
+      }
+    );
+  }
+  return tags;
 }
