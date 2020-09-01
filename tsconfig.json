@@ -10,7 +10,7 @@
     "**/*.spec.ts",
     "**/*.test.ts"
   ],
-  "files": [
-    "src/index.ts"
+  "include": [
+    "src/**/*"
   ]
 }
