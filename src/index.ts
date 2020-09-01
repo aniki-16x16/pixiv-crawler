@@ -1,7 +1,7 @@
 import Axios, { AxiosError } from "axios";
 import { ArtworkResponse, Artwork } from "./model/artwork";
 import { Tag } from "./model/tag";
-import { Concurrent } from "./utils";
+import { Concurrent, formatDate } from "./utils";
 import * as DbUtil from "./db";
 
 const USER_URL = "https://www.pixiv.net/ajax/user/$$i?full=1&lang=zh";
@@ -12,10 +12,7 @@ const getUrl = (url: string, val: number) => url.replace("$$i", val.toString());
 async function main() {
   let collections = await DbUtil.connect();
 
-  /**
-   * 在内存中维护一个Set，从而避免高并发时重复创建tag的问题
-   */
-  const createdTag = new Set();
+  
   new Concurrent(
     function* () {
       let count = 1;
@@ -34,6 +31,11 @@ async function main() {
           (a: _ArtworkBeforeWrite, b: _ArtworkBeforeWrite) => a.id - b.id
         );
 
+        /**
+         * 在内存中维护一个Set，从而避免高并发时重复创建tag的问题
+         * 不创建为全局变量，防止set变的过大
+         */
+        const createdTag = new Set<string>();
         const tags = _generateTagsByArtworks((chunk as unknown) as Artwork[]);
         const _updateTagsPromises: Promise<any>[] = [];
         const tagTimer = Date.now();
@@ -77,16 +79,19 @@ async function main() {
         }
         Promise.all(_updateTagsPromises)
           .then(() => {
+            /**
+             * 手动释放内存(效果存疑)
+             */
+            _updateTagsPromises.length = 0;
             console.log(
-              `${new Date().toUTCString()} ${tags.length}耗时${
+              `${formatDate(new Date())} ${tags.length}条tag耗时${
                 (Date.now() - tagTimer) / 1000
               }秒`
             );
+            console.log(process.memoryUsage());
           })
           .catch((err) => {
-            console.error(
-              `${new Date().toUTCString()}操作tag时发生未知错误:`
-            );
+            console.error(`${formatDate(new Date())}操作tag时发生未知错误:`);
             console.error(err);
             process.exit(1);
           });
@@ -95,7 +100,7 @@ async function main() {
           .insertMany((chunk as unknown) as Artwork[])
           .then(() => {
             console.log(
-              `${new Date().toUTCString()} 插入${chunk.length}条artwork`
+              `${formatDate(new Date())} 插入${chunk.length}条artwork`
             );
           });
       },
@@ -127,10 +132,10 @@ async function main() {
         };
         return artwork;
       },
-      error(err: AxiosError, illustId: number) {
-        let now = new Date().toUTCString();
+      error(err: AxiosError, illustId: number, duration) {
+        let now = formatDate(new Date());
         if (err.response?.status === 404) {
-          console.log(`${now} ${illustId}不存在`);
+          if(duration < 1) console.log(`${now} ${illustId}不存在`);
         } else {
           console.error(
             `${now} ${illustId}未知错误:`

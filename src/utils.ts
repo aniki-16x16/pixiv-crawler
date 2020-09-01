@@ -1,7 +1,7 @@
 interface _ConcurrentPipelines {
   onChunkFullfilled: (chunk: any[]) => Promise<void>;
   success?: (data: any) => any;
-  error?: (err: any, data: any) => void;
+  error?: (err: any, data: any, duration: number) => void;
 }
 export class Concurrent {
   #op: (data: any) => Promise<any>;
@@ -15,7 +15,13 @@ export class Concurrent {
   };
   #pipelines: _ConcurrentPipelines;
 
-  constructor(data: Function, op: (data: any) => Promise<any>, limit: number, chunkSize: number, retry = true) {
+  constructor(
+    data: Function,
+    op: (data: any) => Promise<any>,
+    limit: number,
+    chunkSize: number,
+    retry = true
+  ) {
     this.#nextAble = data();
     this.#op = op;
     this.#limit = limit;
@@ -38,6 +44,7 @@ export class Concurrent {
     };
     const addTask = (data, _count = this.#count) => {
       const req = this.#op(data);
+      const timer = Date.now();
       req
         .then(async (result) => {
           await addToChunk(
@@ -48,7 +55,7 @@ export class Concurrent {
         })
         .catch((err) => {
           if (this.#pipelines?.error) {
-            this.#pipelines.error(err, data);
+            this.#pipelines.error(err, data, Date.now() - timer);
           }
           if (retry) {
             addTask(data);
@@ -94,4 +101,14 @@ export function classifyObjArr(
     }
   }
   return result;
+}
+
+/**
+ * @description 将时间格式化成YYYY-MM-DD hh:mm:ss的格式
+ */
+export function formatDate(date: Date) {
+  return date
+    .toISOString()
+    .replace("T", " ")
+    .replace(/\.\d+Z/, "");
 }
