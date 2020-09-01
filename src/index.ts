@@ -11,8 +11,6 @@ const getUrl = (url: string, val: number) => url.replace("$$i", val.toString());
 
 async function main() {
   let collections = await DbUtil.connect();
-
-  
   new Concurrent(
     function* () {
       let count = 1;
@@ -119,7 +117,9 @@ async function main() {
             name: tag.tag,
             translation: tag.translation?.en ?? "",
           })),
-          is_r18: data.tags.tags.some((tag) => tag.tag === "R-18"),
+          is_r18: data.tags.tags.some(
+            (tag) => tag.tag === "R-18" || tag.tag === "R-18G"
+          ),
           post_date: new Date(data.uploadDate),
           view_info: {
             marks: data.bookmarkCount,
@@ -135,11 +135,9 @@ async function main() {
       error(err: AxiosError, illustId: number, duration) {
         let now = formatDate(new Date());
         if (err.response?.status === 404) {
-          if(duration < 1) console.log(`${now} ${illustId}不存在`);
+          if (duration < 1) console.log(`${now} ${illustId}不存在`);
         } else {
-          console.error(
-            `${now} ${illustId}未知错误:`
-          );
+          console.error(`${now} ${illustId}未知错误:`);
           console.error(err);
           process.exit(1);
         }
