@@ -3,6 +3,12 @@ import { ArtworkResponse, Artwork } from "./model/artwork";
 import { Tag } from "./model/tag";
 import { Concurrent, formatDate } from "./utils";
 import * as DbUtil from "./db";
+import { program } from "commander";
+
+program.option("-l, --limit <number>", "并发数", "20");
+program.version("0.0.1");
+program.parse(process.argv);
+const LIMIT = Number.parseInt(program["limit"]);
 
 const USER_URL = "https://www.pixiv.net/ajax/user/$$i?full=1&lang=zh";
 const ILLUST_URL = "https://www.pixiv.net/ajax/illust/$$i?lang=zh";
@@ -11,15 +17,30 @@ const getUrl = (url: string, val: number) => url.replace("$$i", val.toString());
 
 async function main() {
   let collections = await DbUtil.connect();
+  const PAGE =
+    ((
+      await collections.artwork
+        .find(
+          {},
+          {
+            projection: { id: 1 },
+            sort: { id: -1 },
+            limit: 1,
+          }
+        )
+        .toArray()
+    )[0] as Partial<Artwork>).id + 1;
+  console.log(`从illust#${PAGE}开始，并发数为${LIMIT}`);
+
   new Concurrent(
     function* () {
-      let count = 1;
+      let count = PAGE;
       while (true) {
         yield count++;
       }
     },
     (illustId: number) => Axios.get(getUrl(ILLUST_URL, illustId)),
-    20,
+    LIMIT,
     1000,
     false
   )
@@ -28,7 +49,6 @@ async function main() {
         chunk.sort(
           (a: _ArtworkBeforeWrite, b: _ArtworkBeforeWrite) => a.id - b.id
         );
-
         /**
          * 在内存中维护一个Set，从而避免高并发时重复创建tag的问题
          * 不创建为全局变量，防止set变的过大

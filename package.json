@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "axios": "^0.19.2",
+    "commander": "^6.1.0",
     "mongodb": "^3.6.0"
   },
   "devDependencies": {
